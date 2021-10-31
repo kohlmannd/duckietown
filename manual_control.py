@@ -32,12 +32,15 @@ parser.add_argument("--domain-rand", action="store_true", help="enable domain ra
 parser.add_argument("--dynamics_rand", action="store_true", help="enable dynamics randomization")
 parser.add_argument("--frame-skip", default=1, type=int, help="number of frames to skip")
 parser.add_argument("--seed", default=1, type=int, help="seed")
+parser.add_argument("--no-img-exp", default=True, action="store_false",  help="prohibit image export")
 args = parser.parse_args()
 
 #create logfolder
-logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
-if not os.path.exists(logpath):
-    os.makedirs(logpath)
+
+if(args.no_img_exp):
+	logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
+	if not os.path.exists(logpath):
+    		os.makedirs(logpath)
 
 
 if args.env_name and args.env_name.find("Duckietown") != -1:
@@ -136,10 +139,10 @@ def update(dt):
 
         im.save("screen.png")
     #save image into the logfolder
-    
-    im = Image.fromarray(obs)
-    global logpath
-    im.save(logpath + "/" + str(env.step_count) + ".png")
+    if(args.no_img_exp):
+    	im = Image.fromarray(obs)
+    	global logpath
+    	im.save(logpath + "/" + str(env.step_count) + ".png")
     
     if done:
         print("done!")

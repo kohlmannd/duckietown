@@ -8,8 +8,11 @@ pip3 install -e .
 python3 ./manual_control.py --env-name Duckietown-udem1-v0
 ```
 
+If you want to turn off the image exporting function, use the: --no-img-exp argument
+
 **Run with custom map:**
-```python3 ./manual_control.py --env-name Duckietown --map-name dmad```
+
+```python3 ./manual_control.py --env-name Duckietown --map-name dmad --no-img-exp```
 
 The goals for the first milestone:
 - reading the frames for every time step
