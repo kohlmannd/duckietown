@@ -2,7 +2,7 @@
 
 **Run:**
 ```
-git clone https://github.com/duckietown/gym-duckietown.git
+git clone https://github.com/kohlmannd/duckietown.git
 cd duckietown
 pip3 install -e .
 python3 ./manual_control.py --env-name Duckietown-udem1-v0
