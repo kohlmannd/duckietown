@@ -144,7 +144,7 @@ def update(dt):
         print("done!")
         env.reset()
         #create logfolder
-        global logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
+        logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
         if not os.path.exists(logpath):
             os.makedirs(logpath)
 
