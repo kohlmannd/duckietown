@@ -138,6 +138,7 @@ def update(dt):
     #save image into the logfolder
     
     im = Image.fromarray(obs)
+    global logpath
     im.save(logpath + "/" + str(env.step_count) + ".png")
     
     if done:
