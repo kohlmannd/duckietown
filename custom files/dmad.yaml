@@ -1,0 +1,72 @@
+# Duckie Madnesssssssss
+
+tiles:
+- [grass, grass, grass, grass, grass, grass, grass, grass]
+- [grass, curve_left/W, curve_left/N, grass, grass, curve_left/W, curve_left/N, grass]
+- [grass, straight/S, curve_left/S, curve_left/N, grass, straight/S, straight/S, grass]
+- [grass, straight/S, grass, 3way_left/S, straight/E, 4way, curve_left/E, grass]
+- [grass, straight/S, grass, straight/S, grass, straight/S, grass, grass]
+- [grass, curve_left/S, straight/E, 3way_left/E, straight/E, curve_left/E, grass, grass]
+- [grass, grass, grass, grass, grass, grass, grass, grass]
+
+objects:
+
+
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [3.5, 0.5]
+  rotate: 50
+  static: true
+  
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [4.5, 0.5]
+  rotate: 50
+  static: true
+
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [4.5, 1.5]
+  rotate: 50
+  static: true
+
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [1.5, 3.5]
+  rotate: 50
+  static: true
+  
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [1.5, 4.5]
+  rotate: 50
+  static: true
+  
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [4.5, 4.5]
+  rotate: 50
+  static: true  
+  
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [6.5, 4.5]
+  rotate: 50
+  static: true
+  
+- height: 0.6
+  kind: duckie
+  optional: false
+  pos: [6.5, 5.5]
+  rotate: 50
+  static: true
+  
+tile_size: 0.585
+
