@@ -80,10 +80,6 @@ class Agent:
 
     def act(self, state): #a kimenet alapján valószínűségi alapon választjuk a végleges döntést
         qval = self.predict(state)
-        #you can either pick softmax or epislon greedy actions.
-        #To pick Softmax, un comment the bottom 2 lines and delete everything below that 
-        # prob = tf.nn.softmax(tf.math.divide((qval.flatten()), 1)) 
-        # action = np.random.choice(range(3), p=np.array(prob))
 
         #Epsilon-Greedy actions->
         z = np.random.random()
@@ -173,14 +169,7 @@ def prep_frame(img):
     img = img[:400,:,:]
     img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
     img = img/255
-    # for i in range(np.shape(img)[0]):
-    #     for j in range(np.shape(img)[1]):
-    #         if img[i,j,0] in range(180,210) and img[i,j,1] in range(180,210) and img[i,j,2] in range(180,210):
-    #             img[i,j,:] = [0.,1.,0.]
-    #         elif img[i,j,0] in range(190,210) and img[i,j,1] in range(185,210) and img[i,j,2] < 150:
-    #             img[i,j,:] = [1.,0.,0.]
-    #         else:
-    #             img[i,j,:] = [0.,0.,0.]
+
     return img
     
 
@@ -251,21 +240,6 @@ def update():
         env.render()
 
 
-
-        # env = DuckietownEnv(
-        #     seed=1,
-        #     map_name="udem1",
-        #     draw_curve=False,
-        #     draw_bbox=False,
-        #     domain_rand=False,
-        #     frame_skip=1,
-        #     distortion=False,
-        #     camera_rand=False,
-        #     dynamics_rand=False,
-        # )
-
-
-# agent = Agent()
 stepCounter = 0
 agent=Agent()
 epdone = False
@@ -298,9 +272,7 @@ while True:
         
         while epdone == False:
             update()
-        # pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
-        # pyglet.app.run()
-        
+
         episodeCounter+=1
         epdone = False
     env.render(close=True)
