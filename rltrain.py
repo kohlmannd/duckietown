@@ -26,6 +26,7 @@ from pyglet import event
 from pyglet.window import key
 ##
 from gym_duckietown.envs import DuckietownEnv
+from matplotlib import pyplot as plt
 
 # from experiments.utils import save_img
 
@@ -58,14 +59,14 @@ class Agent:
             MaxPooling2D(pool_size=(2,2), strides=(2,2)),
             Flatten(),
             Dense(128, activation='relu'),
-            Dense(3, activation="relu", name="layer1"),
+            Dense(3, activation="linear", name="layer1"),
         ])
         #fordítás
         model.compile(loss='mean_squared_error', optimizer=Adam(lr=0.0001)) 
     
 
         self.model = model
-        self.memory = [] # Ide tároljuk el minden fram-hez az infókat (state, reward stb)
+        self.memory = [] # Ide tároljuk el minden frame-hez az infókat (state, reward stb)
         self.xTrain = []
         self.yTrain = []
         self.loss = []
@@ -79,13 +80,20 @@ class Agent:
 
     def act(self, state): #a kimenet alapján valószínűségi alapon választjuk a végleges döntést
         qval = self.predict(state)
-        print(qval)
-    
-        prob = tf.nn.softmax(tf.math.divide((qval.flatten()), 1)) 
+        #you can either pick softmax or epislon greedy actions.
+        #To pick Softmax, un comment the bottom 2 lines and delete everything below that 
+        # prob = tf.nn.softmax(tf.math.divide((qval.flatten()), 1)) 
+        # action = np.random.choice(range(3), p=np.array(prob))
 
-        print(np.array(prob))
-        action = np.random.choice(range(3), p=np.array(prob))
-        
+        #Epsilon-Greedy actions->
+        z = np.random.random()
+        epsilon = 0.4
+        if self.location > 1000:
+            epsilon = 0.05
+        if z > epsilon:
+            return np.argmax(qval.flatten())
+        else:
+            return np.random.choice(range(3))
         return action
 
     # Ezzel mentjük frame-enként az infókat
@@ -96,7 +104,7 @@ class Agent:
     #Tanulás külső függvény
     def learn(self):
 
-        self.batchSize = 256
+        self.batchSize = 64
 
         if len(self.memory) < self.batchSize: #legalább egy batchet tudjunk képezni
             print(len(self.memory))
@@ -121,11 +129,11 @@ class Agent:
             stateToPredict, (self.batchSize, 40,80, 15))) #állapot jóslása az actstate értékek alapján (256, 3)
         nextStatePrediction = self.model.predict(np.reshape(
             nextStateToPredict, (self.batchSize, 40, 80, 15))) #jövőbeli jóslat (256, 3)
-
+        print(stateToPredict[2])
         statePrediction = np.array(statePrediction) #(256, 3)
         nextStatePrediction = np.array(nextStatePrediction) #(256, 3)
 
-
+        print(statePrediction)  
         for i in range(self.batchSize):
             action = actions[i] #[1*256]
             reward = rewards[i] #[1*256]
@@ -137,9 +145,12 @@ class Agent:
                 #Q-learning
                 statePrediction[i, action] += alpha * (reward + 0.95 * np.max(nextState) - qval)
 
+        
+        
         self.xTrain.append(np.reshape(
             stateToPredict, (self.batchSize, 40, 80, 15)))
         self.yTrain.append(statePrediction)
+        print(self.model.layers[7].get_weights()[0])
         history = self.model.fit(
             self.xTrain, self.yTrain, batch_size=5, epochs=1, verbose=0)
         loss = history.history.get("loss")[0]
@@ -148,6 +159,7 @@ class Agent:
         self.xTrain = []
         self.yTrain = []
         self.memory = []
+        print(self.model.layers[7].get_weights()[0])
 
 
 if(args.no_img_exp):
@@ -160,25 +172,30 @@ if(args.no_img_exp):
 def prep_frame(img):
     img = img[:400,:,:]
     img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
-    for i in range(np.shape(img)[0]):
-        for j in range(np.shape(img)[1]):
-            if img[i,j,0] in range(180,210) and img[i,j,1] in range(180,210) and img[i,j,2] in range(180,210):
-                img[i,j,:] = [0.,1.,0.]
-            elif img[i,j,0] in range(190,210) and img[i,j,1] in range(185,210) and img[i,j,2] < 150:
-                img[i,j,:] = [1.,0.,0.]
-            else:
-                img[i,j,:] = [0.,0.,0.]
+    img = img/255
+    # for i in range(np.shape(img)[0]):
+    #     for j in range(np.shape(img)[1]):
+    #         if img[i,j,0] in range(180,210) and img[i,j,1] in range(180,210) and img[i,j,2] in range(180,210):
+    #             img[i,j,:] = [0.,1.,0.]
+    #         elif img[i,j,0] in range(190,210) and img[i,j,1] in range(185,210) and img[i,j,2] < 150:
+    #             img[i,j,:] = [1.,0.,0.]
+    #         else:
+    #             img[i,j,:] = [0.,0.,0.]
     return img
     
 
 actstate = np.ndarray((40, 80, 15))
 
 agent = Agent()
+episodeCounter = 0
 
-def update(dt):
+def update():
     global actstate
     global agent
     global stepCounter
+    global episodeCounter
+    global epdone
+    global epReward
 
     dec = agent.act(actstate) #Előző állapot alapján meghozza a döntést
     action = np.array((1,2))
@@ -200,31 +217,36 @@ def update(dt):
                 agent.remember(actstate, nextstate, dec, reward, done, stepCounter)
     elif stepCounter> 40:
                 agent.remember(actstate, nextstate, dec, reward, done, stepCounter)                
+    
     if done == True: #game ended
 
             print("breaking")
-
+    epReward += reward
     actstate = nextstate
     stepCounter += 1
-
     #save image into the logfolder
     if(args.no_img_exp):
-    	im = Image.fromarray(obs)
+    	im = Image.fromarray(nextframe)
     	global logpath
     	im.save(logpath + "/" + str(env.step_count) + ".png")
-    
+    if stepCounter > 10000:
+        done=True
     if done:
-        for _ in range(10):
-                agent.remember(actstate, nextstate, dec, reward, done, stepCounter)
+        agent.remember(actstate, nextstate, dec, -10, done, stepCounter)
         env.render()
         print("done!")
-        pyglet.app.exit()
+        print(np.shape(agent.memory))
+        plotLength.append(stepCounter)
+        stepCounter = 0
+        
+        # pyglet.app.exit()
+        
+        
         #create logfolder
         logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
         if not os.path.exists(logpath):
             os.makedirs(logpath)
-
-        env.close()
+        epdone = True
     else:
         env.render()
 
@@ -245,12 +267,15 @@ def update(dt):
 
 # agent = Agent()
 stepCounter = 0
-
+agent=Agent()
+epdone = False
+epReward = 0
+plotLength = []
+plotRew = []
 while True:
-    agent=Agent()
     if args.env_name and args.env_name.find("Duckietown") != -1:
         env = DuckietownEnv(
-            seed=args.seed,
+            seed=np.random.randint(low=0,high=50),
             map_name=args.map_name,
             draw_curve=args.draw_curve,
             draw_bbox=args.draw_bbox,
@@ -263,18 +288,38 @@ while True:
     else:
         env = gym.make(args.env_name)
   
-
-    for i in range(5):
+    epReward = 0
+    while (episodeCounter<5):
 
         env.reset()
         img = env.render()
         img = prep_frame(img)
         actstate = np.concatenate((img,img,img,img,img),axis=2)
-        stepCounter = 0
-        pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
-        pyglet.app.run()
-    print("Episode ended")
-    agent.learn()    
+        
+        while epdone == False:
+            update()
+        # pyglet.clock.schedule_interval(update, 1.0 / env.unwrapped.frame_rate)
+        # pyglet.app.run()
+        
+        episodeCounter+=1
+        epdone = False
+    env.render(close=True)
+
+    
+
+    plotRew.append(epReward)
+    print("Episode",len(plotLength),"ended")
+    episodeCounter=0
+    if (len(plotLength) % 10) == 0:
+        plt.plot(range(len(plotLength)),plotLength) 
+        plt.show() 
+        plt.plot(range(len(plotRew)),plotRew) 
+        plt.show() 
+    agent.learn()
+
+    
+    agent.model.save_weights ("RLDuck.h5")
+    print( "Saved model to disk")
         
 
 
