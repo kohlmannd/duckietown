@@ -1659,11 +1659,11 @@ class Simulator(gym.Env):
         try:
             lp = self.get_lane_pos2(pos, angle)
         except NotInLane:
-            reward = 40 * col_penalty
+            reward = 400 * col_penalty
         else:
 
             # Compute the reward
-            reward = +1.0 * speed * lp.dot_dir + -10 * np.abs(lp.dist) + +40 * col_penalty
+            reward = +10.0 * speed * lp.dot_dir + -100 * np.abs(lp.dist) + +400 * col_penalty
         return reward
 
     def step(self, action: np.ndarray):

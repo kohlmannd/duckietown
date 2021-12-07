@@ -20,6 +20,9 @@ import cv2
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.models import load_model
 import tensorflow as tf   
 import random
 from pyglet import event
@@ -42,6 +45,8 @@ parser.add_argument("--dynamics_rand", action="store_true", help="enable dynamic
 parser.add_argument("--frame-skip", default=1, type=int, help="number of frames to skip")
 parser.add_argument("--seed", default=1, type=int, help="seed")
 parser.add_argument("--no-img-exp", default=True, action="store_false",  help="prohibit image export")
+parser.add_argument("--load-weights", default=False, action="store_true",  help="load last weights")
+parser.add_argument("--test", default=False, action="store_true",  help="test run. Ignoring epsilon-greedy")
 args = parser.parse_args()
 
 #create logfolder
@@ -71,6 +76,7 @@ class Agent:
         self.yTrain = []
         self.loss = []
         self.location = 0
+        self.episode = 0
 
 
     def predict(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
@@ -80,12 +86,11 @@ class Agent:
 
     def act(self, state): #a kimenet alapján valószínűségi alapon választjuk a végleges döntést
         qval = self.predict(state)
-
         #Epsilon-Greedy actions->
-        z = np.random.random()
-        epsilon = 0.4
-        if self.location > 1000:
-            epsilon = 0.05
+        z = np.random.rand()
+        epsilon = max(0.01,0.01+(1-0.01)*np.exp(-0.03*self.episode))
+        if args.test:
+            epsilon = 0.01
         if z > epsilon:
             return np.argmax(qval.flatten())
         else:
@@ -100,7 +105,7 @@ class Agent:
     #Tanulás külső függvény
     def learn(self):
 
-        self.batchSize = 64
+        self.batchSize = 256
 
         if len(self.memory) < self.batchSize: #legalább egy batchet tudjunk képezni
             print(len(self.memory))
@@ -113,7 +118,7 @@ class Agent:
 
     def learnBatch(self, batch, alpha=0.9):
         batch = np.array(batch) #256*6 [actstate(40*80*15), nextstate(40*80*15), dec(1), reward(1), done(B), stepCounter(1)]
-        actions = batch[:, 2].reshape(self.batchSize).tolist() #[256*1]
+        actions = batch[:, 2].reshape(self.batchSize).tolist() #[256*1] hozott döntés
         rewards = batch[:, 3].reshape(self.batchSize).tolist() #[256*1]
 
         stateToPredict = batch[:, 0].reshape(self.batchSize).tolist() #állapotok amiből jóslunk (256, 40, 80, 15)
@@ -125,37 +130,52 @@ class Agent:
             stateToPredict, (self.batchSize, 40,80, 15))) #állapot jóslása az actstate értékek alapján (256, 3)
         nextStatePrediction = self.model.predict(np.reshape(
             nextStateToPredict, (self.batchSize, 40, 80, 15))) #jövőbeli jóslat (256, 3)
-        print(stateToPredict[2])
+        # print("chosen step")
+        # print(actions)
+        # print("Reward")
+        # print(rewards)
+        # print("Choosen action q value")
+        # print(statePrediction)
+        # print("future state for bellman")
+        # print(nextStatePrediction)
+        print("Current episode:", self.episode)
         statePrediction = np.array(statePrediction) #(256, 3)
         nextStatePrediction = np.array(nextStatePrediction) #(256, 3)
 
-        print(statePrediction)  
         for i in range(self.batchSize):
             action = actions[i] #[1*256]
             reward = rewards[i] #[1*256]
-            nextState = nextStatePrediction[i] #[3*256]
-            qval = statePrediction[i, action] #[1*256] a választott döntés valószínűsége (pontosabban háló kimeneti értéke)
+            nextState = nextStatePrediction[i] #[3]
+            qval = statePrediction[i, action] #[1] a választott döntés valószínűsége (pontosabban háló kimeneti értéke)
             if reward < -5: 
                 statePrediction[i, action] = reward
             else:
                 #Q-learning
-                statePrediction[i, action] += alpha * (reward + 0.95 * np.max(nextState) - qval)
+                statePrediction[i, action] = (reward + 0.95 * np.max(nextState))
 
-        
-        
+
+        early_stoping = EarlyStopping(patience=5, verbose=1)
+        checkpointer = ModelCheckpoint(filepath='weights.hdf5', save_best_only=True, verbose=1)
+        # print("modified")
+        # print(statePrediction)
         self.xTrain.append(np.reshape(
             stateToPredict, (self.batchSize, 40, 80, 15)))
         self.yTrain.append(statePrediction)
-        print(self.model.layers[7].get_weights()[0])
+        # print("Target value")
+        # print(self.yTrain)
         history = self.model.fit(
-            self.xTrain, self.yTrain, batch_size=5, epochs=1, verbose=0)
+            self.xTrain, self.yTrain, batch_size=32, epochs=30, validation_split=0.2, verbose=2, callbacks=[checkpointer, early_stoping])
+        self.model = load_model('weights.hdf5')
         loss = history.history.get("loss")[0]
+        # print("Target value")
+        # print(self.model.predict(np.reshape(
+        #     self.xTrain, (self.batchSize, 40,80, 15))))
         print("LOSS: ", loss)
         self.loss.append(loss)
         self.xTrain = []
         self.yTrain = []
         self.memory = []
-        print(self.model.layers[7].get_weights()[0])
+
 
 
 if(args.no_img_exp):
@@ -166,8 +186,23 @@ if(args.no_img_exp):
 
 
 def prep_frame(img):
-    img = img[:400,:,:]
+    yellow_bot = (150,140,5)
+    yellow_up=(220,210,150)
+    white_bot=(150,150,150)
+    white_up=(230,220,220)
+    img = img[150:,:,:]
     img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
+    mask_y = cv2.inRange(img,yellow_bot,yellow_up)
+    mask_w = cv2.inRange(img,white_bot,white_up)
+    # mask = mask_y+mask_w
+    # img = cv2.bitwise_and(img, img, mask=mask)
+    img[:,:,0] = mask_y
+    img[:,:,1] = mask_w
+    img[:,:,2] *= 0
+    if(args.no_img_exp):
+    	im = Image.fromarray(img)
+    	global logpath
+    	im.save(logpath + "/" + str(env.step_count) + ".png")
     img = img/255
 
     return img
@@ -199,10 +234,12 @@ def update():
         action[1] = -1
 
     nextframe, reward, done, info = env.step(action) #Hattatjuk a döntést a környezetre
-
+    
+    if reward ==-1000:
+        reward = -40
     nextstate = np.concatenate((actstate[:,:,3:],prep_frame(nextframe)),axis=2) #dropping the oldest frame and adding the new one
     if stepCounter> 700:
-            for _ in range(5):
+            for _ in range(2):
                 agent.remember(actstate, nextstate, dec, reward, done, stepCounter)
     elif stepCounter> 40:
                 agent.remember(actstate, nextstate, dec, reward, done, stepCounter)                
@@ -214,11 +251,11 @@ def update():
     actstate = nextstate
     stepCounter += 1
     #save image into the logfolder
-    if(args.no_img_exp):
-    	im = Image.fromarray(nextframe)
-    	global logpath
-    	im.save(logpath + "/" + str(env.step_count) + ".png")
-    if stepCounter > 10000:
+    # if(args.no_img_exp):
+    # 	im = Image.fromarray(nextframe)
+    # 	global logpath
+    # 	im.save(logpath + "/full_" + str(env.step_count) + ".png")
+    if stepCounter > 1000:
         done=True
     if done:
         agent.remember(actstate, nextstate, dec, -10, done, stepCounter)
@@ -261,12 +298,14 @@ while True:
         )
     else:
         env = gym.make(args.env_name)
-  
+    if args.load_weights:
+        agent.model = load_model('weights.hdf5')
+        print('Weights loaded from last run')
     epReward = 0
     while (episodeCounter<5):
 
         env.reset()
-        img = env.render()
+        img, _, _, _ = env.step([0.,0.])
         img = prep_frame(img)
         actstate = np.concatenate((img,img,img,img,img),axis=2)
         
@@ -277,16 +316,16 @@ while True:
         epdone = False
     env.render(close=True)
 
-    
+    agent.episode += 1
 
     plotRew.append(epReward)
-    print("Episode",len(plotLength),"ended")
+    print("Run ",len(plotLength),"ended")
     episodeCounter=0
-    if (len(plotLength) % 10) == 0:
-        plt.plot(range(len(plotLength)),plotLength) 
-        plt.show() 
-        plt.plot(range(len(plotRew)),plotRew) 
-        plt.show() 
+    # if (len(plotLength) % 10) == 0:
+    #     plt.plot(range(len(plotLength)),plotLength) 
+    #     plt.show() 
+    #     plt.plot(range(len(plotRew)),plotRew) 
+    #     plt.show() 
     agent.learn()
 
     
@@ -297,5 +336,56 @@ while True:
 
 
 
+# from PIL import Image
+# import argparse
+# import sys
 
-env.close()
+# import os
+# from datetime import datetime
+# ##
+# import gym
+# import numpy as np
+# from numpy.core.fromnumeric import shape
+# import pyglet
+# import cv2
+# from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
+# from tensorflow.keras.models import Sequential
+# from tensorflow.keras.optimizers import Adam
+# import tensorflow as tf   
+# import random
+# from pyglet import event
+# from pyglet.window import key
+# ##
+# from gym_duckietown.envs import DuckietownEnv
+# from matplotlib import pyplot as plt
+
+# env = DuckietownEnv(
+#             seed=np.random.randint(low=0,high=50),
+#             map_name="dmad2",
+#             draw_curve=False,
+#             draw_bbox=False,
+#             domain_rand=False,
+#             frame_skip=1,
+#             distortion=False,
+#             camera_rand=False,
+#             dynamics_rand=False,
+#         )
+
+# yellow_bot = (150,140,35)
+# yellow_up=(220,210,150)
+# white_bot=(175,175,175)
+# white_up=(210,210,210)
+# img, reward, done, info = env.step([1.,1.])
+# img = img[150:,:,:]
+# img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
+# mask_y = cv2.inRange(img,yellow_bot,yellow_up)
+# mask_w = cv2.inRange(img,white_bot,white_up)
+# mask = mask_y+mask_w
+# img = cv2.bitwise_and(img, img, mask=mask)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(mask)
+# plt.subplot(1, 2, 2)
+# plt.imshow(img)
+# plt.show()
+
