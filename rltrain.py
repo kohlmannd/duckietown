@@ -66,36 +66,65 @@ class Agent:
             Dense(128, activation='relu'),
             Dense(3, activation="linear", name="layer1"),
         ])
+        target = Sequential([ 
+            Conv2D(32, (3,3), input_shape=(40, 80, 15),
+                   strides=(1,1),padding='same', activation='relu'),
+            MaxPooling2D(pool_size=(2,2), strides=(2, 2)),
+            Conv2D(32, (3,3), activation='relu',padding='same', strides=(1,1)),
+            MaxPooling2D(pool_size=(2, 2), strides=(2, 2)),
+            Conv2D(64, (3, 3), strides=(1,1),padding='same', activation='relu'),
+            MaxPooling2D(pool_size=(2,2), strides=(2,2)),
+            Flatten(),
+            Dense(128, activation='relu'),
+            Dense(3, activation="linear", name="layer1"),
+        ])
+        
         #fordítás
         model.compile(loss='mean_squared_error', optimizer=Adam(lr=0.0001)) 
     
 
         self.model = model
+        self.target = target
         self.memory = [] # Ide tároljuk el minden frame-hez az infókat (state, reward stb)
         self.xTrain = []
         self.yTrain = []
         self.loss = []
         self.location = 0
         self.episode = 0
+        self.target.set_weights(self.model.get_weights()) 
 
 
-    def predict(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
-        stateConv = state
-        qval = self.model.predict(np.reshape(stateConv, (1, 40, 80, 15)))
-        return qval
+    # def predict(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
+    #     stateConv = state
+    #     qval = self.model.predict(np.reshape(stateConv, (1, 40, 80, 15)))
+    #     return qval
+
+    # def predictTarget(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
+    #     stateConv = state
+    #     qval = self.target.predictTarget(np.reshape(stateConv, (1, 40, 80, 15)))
+    #     return qval
+    
+    def updateTarget(self):
+        self.target.set_weights(self.model.get_weights()) 
 
     def act(self, state): #a kimenet alapján valószínűségi alapon választjuk a végleges döntést
-        qval = self.predict(state)
+        qval = self.model.predict(np.reshape(state, (1, 40, 80, 15)))
         #Epsilon-Greedy actions->
         z = np.random.rand()
         epsilon = max(0.01,0.01+(1-0.01)*np.exp(-0.03*self.episode))
         if args.test:
             epsilon = 0.01
         if z > epsilon:
+            
+            # print("Háló kimenet: ",qval.flatten())
+            # prob = tf.nn.softmax(tf.math.divide((qval.flatten()), 1)) 
+            # # print("Valószínűségi eloszlás: ",prob)
+            # action = np.random.choice(range(3), p=np.array(prob))
+            # # print("Választott akció: ",action)
             return np.argmax(qval.flatten())
+            # return action
         else:
             return np.random.choice(range(3))
-        return action
 
     # Ezzel mentjük frame-enként az infókat
     def remember(self, state, nextState, action, reward, done, location):
@@ -128,7 +157,7 @@ class Agent:
 
         statePrediction = self.model.predict(np.reshape(
             stateToPredict, (self.batchSize, 40,80, 15))) #állapot jóslása az actstate értékek alapján (256, 3)
-        nextStatePrediction = self.model.predict(np.reshape(
+        nextStatePrediction = self.target.predict(np.reshape(
             nextStateToPredict, (self.batchSize, 40, 80, 15))) #jövőbeli jóslat (256, 3)
         # print("chosen step")
         # print(actions)
@@ -147,7 +176,7 @@ class Agent:
             reward = rewards[i] #[1*256]
             nextState = nextStatePrediction[i] #[3]
             qval = statePrediction[i, action] #[1] a választott döntés valószínűsége (pontosabban háló kimeneti értéke)
-            if reward < -5: 
+            if reward < -79: 
                 statePrediction[i, action] = reward
             else:
                 #Q-learning
@@ -178,10 +207,10 @@ class Agent:
 
 
 
-if(args.no_img_exp):
-	logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
-	if not os.path.exists(logpath):
-    		os.makedirs(logpath)
+# if(args.no_img_exp):
+# 	logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
+# 	if not os.path.exists(logpath):
+#     		os.makedirs(logpath)
 
 
 
@@ -234,9 +263,8 @@ def update():
         action[1] = -1
 
     nextframe, reward, done, info = env.step(action) #Hattatjuk a döntést a környezetre
-    
-    if reward ==-1000:
-        reward = -40
+    # print("Reward: ", reward)
+    # print("Done ", done)
     nextstate = np.concatenate((actstate[:,:,3:],prep_frame(nextframe)),axis=2) #dropping the oldest frame and adding the new one
     if stepCounter> 700:
             for _ in range(2):
@@ -300,10 +328,11 @@ while True:
         env = gym.make(args.env_name)
     if args.load_weights:
         agent.model = load_model('weights.hdf5')
+        agent.target = load_model('weights.hdf5')
         print('Weights loaded from last run')
-    epReward = 0
+    
     while (episodeCounter<5):
-
+        epReward = 0
         env.reset()
         img, _, _, _ = env.step([0.,0.])
         img = prep_frame(img)
@@ -314,78 +343,21 @@ while True:
 
         episodeCounter+=1
         epdone = False
+        plotRew.append(epReward)
     env.render(close=True)
 
     agent.episode += 1
 
-    plotRew.append(epReward)
+    
     print("Run ",len(plotLength),"ended")
     episodeCounter=0
-    # if (len(plotLength) % 10) == 0:
-    #     plt.plot(range(len(plotLength)),plotLength) 
-    #     plt.show() 
-    #     plt.plot(range(len(plotRew)),plotRew) 
-    #     plt.show() 
+    if agent.episode == 70:
+        plt.plot(range(len(plotRew)),plotRew) 
+        plt.show() 
     agent.learn()
+    if (agent.episode % 3) == 0:
+        agent.updateTarget()
+        print( "Target net parameters updated")
 
-    
-    agent.model.save_weights ("RLDuck.h5")
     print( "Saved model to disk")
         
-
-
-
-
-# from PIL import Image
-# import argparse
-# import sys
-
-# import os
-# from datetime import datetime
-# ##
-# import gym
-# import numpy as np
-# from numpy.core.fromnumeric import shape
-# import pyglet
-# import cv2
-# from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
-# from tensorflow.keras.models import Sequential
-# from tensorflow.keras.optimizers import Adam
-# import tensorflow as tf   
-# import random
-# from pyglet import event
-# from pyglet.window import key
-# ##
-# from gym_duckietown.envs import DuckietownEnv
-# from matplotlib import pyplot as plt
-
-# env = DuckietownEnv(
-#             seed=np.random.randint(low=0,high=50),
-#             map_name="dmad2",
-#             draw_curve=False,
-#             draw_bbox=False,
-#             domain_rand=False,
-#             frame_skip=1,
-#             distortion=False,
-#             camera_rand=False,
-#             dynamics_rand=False,
-#         )
-
-# yellow_bot = (150,140,35)
-# yellow_up=(220,210,150)
-# white_bot=(175,175,175)
-# white_up=(210,210,210)
-# img, reward, done, info = env.step([1.,1.])
-# img = img[150:,:,:]
-# img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
-# mask_y = cv2.inRange(img,yellow_bot,yellow_up)
-# mask_w = cv2.inRange(img,white_bot,white_up)
-# mask = mask_y+mask_w
-# img = cv2.bitwise_and(img, img, mask=mask)
-
-# plt.subplot(1, 2, 1)
-# plt.imshow(mask)
-# plt.subplot(1, 2, 2)
-# plt.imshow(img)
-# plt.show()
-
