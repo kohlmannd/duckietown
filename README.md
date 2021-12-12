@@ -30,10 +30,12 @@ The output will be the action array for the next step. Currently we modify the a
 
 # Second milestone
 
-**Upgraded custom map**
+**Upgraded custom map:**
+
 As previously you should copy it into /usr/local/lib/python3.8/dist-packages/duckietown_world/data/gd1/maps. The new map is dmad2.yaml. This version is more simple, because the last version was way too complicated for our case. (No GPU)
 
-**Reinforcement learning**
+**Reinforcement learning:**
+
 You can run the training with the following command:
 ```python3 ./rltrain.py --env-name Duckietown --map-name dmad2 --no-img-exp```
 This will start the simulation. It iterates through 5 runs in 1 episode. This goes on forever.
@@ -55,17 +57,22 @@ It is clear that the model learns, but our hyperparameters and the model needs s
         - Updating weights
 
 **Monitoring**
+
 After 10 episodes you can inspect the change in run lengths and the reward. After plotting you have to close it and then the training continues. 
 
 # Third milestone
 Kohlmann Dániel - ICT3NK
+
 Köpeczi-Bócz Ákos - AVEK7G
+
 Széles Katalin - AC09LI
 
-**Changes**
+**Changes:**
+
 We have changed and optimized several things since the last milestone. The biggest change was that we introduced a target network along the policy network in hope for stability improvements. Also we included now our best solution in best_weights.md5. This version can navigate when it is placed in the right initial position. It is able to follow the lane and take right turns, but when it meets a left turn and loses the yellow line it starts to oscillate.
 
-**How to run**
+**How to run:**
+
 You can run the training with the following command after copyiing the map dmad2 in the above mentioned folder:
 ```python3 ./rltrain.py --env-name Duckietown --map-name dmad2 --no-img-exp```
 This command will start a new training, the reward evolution will be ploted after 70 episodes.
