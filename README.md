@@ -73,6 +73,12 @@ We have changed and optimized several things since the last milestone. The bigge
 
 **How to run:**
 
+You can check our best solution in one of the best case scenario:
+
+https://www.youtube.com/watch?v=bgMaVqURoNQ
+
+
+
 You can run the training with the following command after copying the map dmad2 in the above mentioned folder:
 
 ```python3 ./rltrain.py --env-name Duckietown --map-name dmad2 --no-img-exp```
