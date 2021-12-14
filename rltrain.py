@@ -1,9 +1,16 @@
-#!/usr/bin/env python
-# manual
+"""
+We constructed our own RL training instead of using different RL packages. 
+Our main sources which are not articles, but helped us understanding the proccess:
+ - https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
+ - https://www.youtube.com/watch?v=nyjbcRQ-uQ8&list=PLZbbT5o_s2xoWNVdDudn51XM8lOuZ_Njv
+ - https://github.com/SaralTayal123/ChromeDinoAI (!! It has many problems !!)
+"""
 
 """
-This script allows you to manually control the simulator or Duckiebot
-using the keyboard arrows.
+Importing the different environments and packages:
+gym - Simulational environment
+cv2 - For preprocessing the images
+tensorflow - For the network (creation, training, evaluation)
 """
 from PIL import Image
 import argparse
@@ -11,28 +18,35 @@ import sys
 
 import os
 from datetime import datetime
-##
+
 import gym
 import numpy as np
 from numpy.core.fromnumeric import shape
-import pyglet
 import cv2
+import tensorflow as tf   
 from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.callbacks import ModelCheckpoint
 from tensorflow.keras.models import load_model
-import tensorflow as tf   
 import random
+
+import pyglet
 from pyglet import event
 from pyglet.window import key
-##
+
 from gym_duckietown.envs import DuckietownEnv
 from matplotlib import pyplot as plt
 
-# from experiments.utils import save_img
 
+"""
+These are the parameter that we can use when starting the code
+Added ones:
+ - --no-img-exp - You should add this if you don't want to export every frame
+ - --load-weights - loads the network parameters from weights.hdf5 (for retraining and test)
+ - --test - Starts the enviroment for testing. Exploring is 1% and mainly exploiting the trained network.
+"""
 parser = argparse.ArgumentParser()
 parser.add_argument("--env-name", default=None)
 parser.add_argument("--map-name", default="udem1")
@@ -49,11 +63,24 @@ parser.add_argument("--load-weights", default=False, action="store_true",  help=
 parser.add_argument("--test", default=False, action="store_true",  help="test run. Ignoring epsilon-greedy")
 args = parser.parse_args()
 
-#create logfolder
+"""
+This is our Agent class which consists:
+ - Policy networok
+ - Target network
+ - Methods for handling the networks (updateTarget, act)
+ - Experience memory and management methods (remember)
+ - Trainig methods (learn, learnBatch)
+"""
+
+
+if(args.no_img_exp):
+	logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
+	if not os.path.exists(logpath):
+    		os.makedirs(logpath)
 
 class Agent:
     def __init__(self):
-        #Konvolúcióüs háló a cikk alapján
+        #This is our neural network. Source: http://real.mtak.hu/115338/1/5-wcci_2020_duckietown.pdf
         model = Sequential([ 
             Conv2D(32, (3,3), input_shape=(40, 80, 15),
                    strides=(1,1),padding='same', activation='relu'),
@@ -66,6 +93,7 @@ class Agent:
             Dense(128, activation='relu'),
             Dense(3, activation="linear", name="layer1"),
         ])
+        #This our target network which is the exact copy of the previous one.
         target = Sequential([ 
             Conv2D(32, (3,3), input_shape=(40, 80, 15),
                    strides=(1,1),padding='same', activation='relu'),
@@ -78,127 +106,121 @@ class Agent:
             Dense(128, activation='relu'),
             Dense(3, activation="linear", name="layer1"),
         ])
-        
-        #fordítás
+    
         model.compile(loss='mean_squared_error', optimizer=Adam(lr=0.0001)) 
     
-
         self.model = model
         self.target = target
-        self.memory = [] # Ide tároljuk el minden frame-hez az infókat (state, reward stb)
-        self.xTrain = []
-        self.yTrain = []
-        self.loss = []
-        self.location = 0
-        self.episode = 0
+        self.memory = [] # This is where we will store our experiences
+        self.xTrain = [] # Side variable for training
+        self.yTrain = [] # Side wariable for training
+        self.loss = [] # Side variable for storing the losses
+        self.location = 0 # Location refers to the run count
+        self.episode = 0 # Episode refers to the episode count
         self.target.set_weights(self.model.get_weights()) 
 
-
-    # def predict(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
-    #     stateConv = state
-    #     qval = self.model.predict(np.reshape(stateConv, (1, 40, 80, 15)))
-    #     return qval
-
-    # def predictTarget(self, state): #Prediktálás a 3 kimenetre (előre, jobb, bal)
-    #     stateConv = state
-    #     qval = self.target.predictTarget(np.reshape(stateConv, (1, 40, 80, 15)))
-    #     return qval
-    
+    #Copy weights of policy network to target network
     def updateTarget(self):
         self.target.set_weights(self.model.get_weights()) 
 
-    def act(self, state): #a kimenet alapján valószínűségi alapon választjuk a végleges döntést
-        qval = self.model.predict(np.reshape(state, (1, 40, 80, 15)))
-        #Epsilon-Greedy actions->
-        z = np.random.rand()
-        epsilon = max(0.01,0.01+(1-0.01)*np.exp(-0.03*self.episode))
+    """
+    This is our method for choosing the action based on the actual state. 
+    It is based on the epsilon-greedy algorithm.
+    This is controlling the ratio of exploration and exploitation.
+    """
+    def act(self, state): 
+        qval = self.model.predict(np.reshape(state, (1, 40, 80, 15))) #Q-values based on the state
+        z = np.random.rand() 
+        """
+        This is our epsilon function
+        As our training progresses the duckiebot will rather exploit the network in the decision making process
+        rather than eplore with a random action. 
+        The parameters can be changed if we want to have a longer exploring period for the training. 
+        """
+        epsilon = max(0.01,0.01+(1-0.01)*np.exp(-0.03*self.episode)) 
+        #If we start the program in test mode the exploration rate is 1%
         if args.test:
             epsilon = 0.01
+
         if z > epsilon:
-            
-            # print("Háló kimenet: ",qval.flatten())
+            """
+            We tried to make the decision based on a probability distribution using the soft-max of the output. 
+            We experienced that the program performed better without it. You can uncomment the three 
+            lines bellow to try with this solution.
+            """
             # prob = tf.nn.softmax(tf.math.divide((qval.flatten()), 1)) 
-            # # print("Valószínűségi eloszlás: ",prob)
             # action = np.random.choice(range(3), p=np.array(prob))
-            # # print("Választott akció: ",action)
-            return np.argmax(qval.flatten())
             # return action
+            return np.argmax(qval.flatten())
+            
         else:
             return np.random.choice(range(3))
 
-    # Ezzel mentjük frame-enként az infókat
+    # This method is for storing the experience. We call this after each step.
     def remember(self, state, nextState, action, reward, done, location):
         self.location = location
         self.memory.append(np.array([state, nextState, action, reward, done]))
 
-    #Tanulás külső függvény
+    #This method is for checking the memory data and picking a random batch from it.
     def learn(self):
 
         self.batchSize = 256
 
-        if len(self.memory) < self.batchSize: #legalább egy batchet tudjunk képezni
+        if len(self.memory) < self.batchSize: #We are checking if there are enough experiences
             print(len(self.memory))
             print("Not enoguh frames")
             return  
-        batch = random.sample(self.memory, self.batchSize)
+        batch = random.sample(self.memory, self.batchSize) #We are sampling from the memory in a random manner.
 
         self.learnBatch(batch)
 
 
     def learnBatch(self, batch, alpha=0.9):
-        batch = np.array(batch) #256*6 [actstate(40*80*15), nextstate(40*80*15), dec(1), reward(1), done(B), stepCounter(1)]
-        actions = batch[:, 2].reshape(self.batchSize).tolist() #[256*1] hozott döntés
-        rewards = batch[:, 3].reshape(self.batchSize).tolist() #[256*1]
+        batch = np.array(batch) #(256, [actstate(40*80*15), nextstate(40*80*15), dec(1), reward(1), done(B), stepCounter(1)] )
+        actions = batch[:, 2].reshape(self.batchSize).tolist() #(256, 1) Choosen decision vector
+        rewards = batch[:, 3].reshape(self.batchSize).tolist() #(256, 1) Received reward vector
 
-        stateToPredict = batch[:, 0].reshape(self.batchSize).tolist() #állapotok amiből jóslunk (256, 40, 80, 15)
+        stateToPredict = batch[:, 0].reshape(self.batchSize).tolist() #States before step (256, 40, 80, 15)
 
-        nextStateToPredict = batch[:, 1].reshape(self.batchSize).tolist() #állapotok amiket kaptunk(256, 40, 80, 15)
+        nextStateToPredict = batch[:, 1].reshape(self.batchSize).tolist() #States after the step (256, 40, 80, 15)
 
 
         statePrediction = self.model.predict(np.reshape(
-            stateToPredict, (self.batchSize, 40,80, 15))) #állapot jóslása az actstate értékek alapján (256, 3)
+            stateToPredict, (self.batchSize, 40,80, 15))) #(256, 3) Q-values for each action based on the state before step
         nextStatePrediction = self.target.predict(np.reshape(
-            nextStateToPredict, (self.batchSize, 40, 80, 15))) #jövőbeli jóslat (256, 3)
-        # print("chosen step")
-        # print(actions)
-        # print("Reward")
-        # print(rewards)
-        # print("Choosen action q value")
-        # print(statePrediction)
-        # print("future state for bellman")
-        # print(nextStatePrediction)
-        print("Current episode:", self.episode)
+            nextStateToPredict, (self.batchSize, 40, 80, 15))) #(256, 3) Q-values for each action based on the state after step
+
         statePrediction = np.array(statePrediction) #(256, 3)
         nextStatePrediction = np.array(nextStatePrediction) #(256, 3)
 
         for i in range(self.batchSize):
-            action = actions[i] #[1*256]
-            reward = rewards[i] #[1*256]
-            nextState = nextStatePrediction[i] #[3]
-            qval = statePrediction[i, action] #[1] a választott döntés valószínűsége (pontosabban háló kimeneti értéke)
-            if reward < -79: 
+            action = actions[i] #(1, 1)
+            reward = rewards[i] #(1, 1)
+            nextState = nextStatePrediction[i] #(1, 3)
+            qval = statePrediction[i, action] #(1, 1) Q-value for the choosen action
+            if reward < -79: #Right now when it dies, it receives -80. If the reward funcion is modified, don't forget to modify this also.
                 statePrediction[i, action] = reward
             else:
-                #Q-learning
+                #Target Q-value based on the Bellman equation
                 statePrediction[i, action] = (reward + 0.95 * np.max(nextState))
 
 
         early_stoping = EarlyStopping(patience=5, verbose=1)
         checkpointer = ModelCheckpoint(filepath='weights.hdf5', save_best_only=True, verbose=1)
-        # print("modified")
-        # print(statePrediction)
+
         self.xTrain.append(np.reshape(
             stateToPredict, (self.batchSize, 40, 80, 15)))
         self.yTrain.append(statePrediction)
-        # print("Target value")
-        # print(self.yTrain)
+        """
+            Training with a mini-batch size of 32 in maximum 30 epochs.
+            We did a 20% validitional split from the 256 chosen experiences.
+            Early stopping based on the validation loss.
+        """
         history = self.model.fit(
-            self.xTrain, self.yTrain, batch_size=32, epochs=30, validation_split=0.2, verbose=2, callbacks=[checkpointer, early_stoping])
+            self.xTrain, self.yTrain, batch_size=32, epochs=30, validation_split=0.2, verbose=2, callbacks=[checkpointer, early_stoping])  
         self.model = load_model('weights.hdf5')
         loss = history.history.get("loss")[0]
-        # print("Target value")
-        # print(self.model.predict(np.reshape(
-        #     self.xTrain, (self.batchSize, 40,80, 15))))
+
         print("LOSS: ", loss)
         self.loss.append(loss)
         self.xTrain = []
@@ -206,14 +228,13 @@ class Agent:
         self.memory = []
 
 
-
-# if(args.no_img_exp):
-# 	logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
-# 	if not os.path.exists(logpath):
-#     		os.makedirs(logpath)
-
-
-
+"""
+This is the preprocessing of the images. We segment the yellow and white colors (middle-line and side-lines).
+After segmentation we store the two type of lines in the red and green channels.
+We cut off the top part (sky) that consists no useful information. Also we rescaled the images to a 80*40 size.
+The blue layer does not contain any information now, but we kept it in case we want to use that for something in the future.
+After the transformations we are norming the values to the 0-1 range. 
+"""
 def prep_frame(img):
     yellow_bot = (150,140,5)
     yellow_up=(220,210,150)
@@ -223,95 +244,85 @@ def prep_frame(img):
     img = cv2.resize(img, dsize=(80,40), interpolation=cv2.INTER_CUBIC)
     mask_y = cv2.inRange(img,yellow_bot,yellow_up)
     mask_w = cv2.inRange(img,white_bot,white_up)
-    # mask = mask_y+mask_w
-    # img = cv2.bitwise_and(img, img, mask=mask)
+
     img[:,:,0] = mask_y
     img[:,:,1] = mask_w
     img[:,:,2] *= 0
     if(args.no_img_exp):
-    	im = Image.fromarray(img)
-    	global logpath
-    	im.save(logpath + "/" + str(env.step_count) + ".png")
+        im = Image.fromarray(img)
+        global logpath
+        global agent
+        global runCounter
+        logpath2 = logpath + "/episode" + str(agent.episode) + "/run" + str(runCounter)
+        if not os.path.exists(logpath2):
+            os.makedirs(logpath2)
+        im.save(logpath2 + "/" + str(env.step_count) + ".png")
     img = img/255
 
     return img
-    
 
-actstate = np.ndarray((40, 80, 15))
-
-agent = Agent()
-episodeCounter = 0
-
+"""
+    This is the function that we call again and again in each run.
+    It consists:
+     -  Decision making
+     -  Acting based on the decision
+     -  Experience storing
+     -  Managing other control variables
+"""
 def update():
     global actstate
     global agent
     global stepCounter
-    global episodeCounter
-    global epdone
-    global epReward
+    global runCounter
+    global rundone
+    global runReward
 
-    dec = agent.act(actstate) #Előző állapot alapján meghozza a döntést
+    dec = agent.act(actstate) #Based on the actual state we choose and action
     action = np.array((1,2))
-    if dec == 0:
+    #Convert the choosen decision (0,1,2) into actual action vector
+    if dec == 0: #Stepping forward
         action[0] = 1
         action[1] = 0
-    elif dec == 1:
+    elif dec == 1: #Turning left
         action[0] = 0
         action[1] = 1
-    else:
+    else: #Turning right
         action[0] = 0
         action[1] = -1
 
-    nextframe, reward, done, info = env.step(action) #Hattatjuk a döntést a környezetre
-    # print("Reward: ", reward)
-    # print("Done ", done)
-    nextstate = np.concatenate((actstate[:,:,3:],prep_frame(nextframe)),axis=2) #dropping the oldest frame and adding the new one
-    if stepCounter> 700:
-            for _ in range(2):
-                agent.remember(actstate, nextstate, dec, reward, done, stepCounter)
-    elif stepCounter> 40:
-                agent.remember(actstate, nextstate, dec, reward, done, stepCounter)                
+    nextframe, reward, done, info = env.step(action) #Using the action vector we interact with the duckiebot and make the step. The environment returns the state and reward.
+    nextstate = np.concatenate((actstate[:,:,3:],prep_frame(nextframe)),axis=2) #Dropping the oldest frame and adding the new one
+        
+    agent.remember(actstate, nextstate, dec, reward, done, stepCounter)  #Write the experience into the memory
     
-    if done == True: #game ended
-
-            print("breaking")
-    epReward += reward
+    runReward += reward
     actstate = nextstate
     stepCounter += 1
-    #save image into the logfolder
-    # if(args.no_img_exp):
-    # 	im = Image.fromarray(nextframe)
-    # 	global logpath
-    # 	im.save(logpath + "/full_" + str(env.step_count) + ".png")
+    #Early stopping (mainly due to oscillations)
     if stepCounter > 1000:
         done=True
+    
     if done:
-        agent.remember(actstate, nextstate, dec, -10, done, stepCounter)
         env.render()
-        print("done!")
-        print(np.shape(agent.memory))
-        plotLength.append(stepCounter)
+        print("Run ended!")
         stepCounter = 0
-        
-        # pyglet.app.exit()
-        
-        
-        #create logfolder
-        logpath = "./logs/log" + datetime.now().strftime("%m_%d_%H_%M_%S")
-        if not os.path.exists(logpath):
-            os.makedirs(logpath)
-        epdone = True
+        rundone = True
     else:
         env.render()
 
-
+#Some global variables
 stepCounter = 0
 agent=Agent()
-epdone = False
-epReward = 0
-plotLength = []
+rundone = False
+runReward = 0
 plotRew = []
+actstate = np.ndarray((40, 80, 15))
+runCounter = 0
+
+
+#Main loop
 while True:
+    #We initialize the enviroment before each episode with a random seed 
     if args.env_name and args.env_name.find("Duckietown") != -1:
         env = DuckietownEnv(
             seed=np.random.randint(low=0,high=50),
@@ -326,38 +337,41 @@ while True:
         )
     else:
         env = gym.make(args.env_name)
+
+    #If --load-weights argument was included then we load the weights from weights.hdf5
     if args.load_weights:
         agent.model = load_model('weights.hdf5')
         agent.target = load_model('weights.hdf5')
         print('Weights loaded from last run')
     
-    while (episodeCounter<5):
-        epReward = 0
+    #In one episode we have 5 runs (respawns)
+    while (runCounter<5):
+        runReward = 0 
         env.reset()
         img, _, _, _ = env.step([0.,0.])
         img = prep_frame(img)
-        actstate = np.concatenate((img,img,img,img,img),axis=2)
+        actstate = np.concatenate((img,img,img,img,img),axis=2) #We initialize the actstate with the stationary spawn position
         
-        while epdone == False:
+        #Let's go until we run off the map
+        while rundone == False:
             update()
 
-        episodeCounter+=1
-        epdone = False
-        plotRew.append(epReward)
-    env.render(close=True)
+        runCounter+=1
+        rundone = False
+        plotRew.append(runReward)
+    env.render(close=True) # The rendering is buggy, this is needed to close the window.
 
     agent.episode += 1
+    runCounter=0
 
-    
-    print("Run ",len(plotLength),"ended")
-    episodeCounter=0
-    if agent.episode == 70:
+    #After 60 episodes we plot the reward development
+    if agent.episode == 60:
         plt.plot(range(len(plotRew)),plotRew) 
         plt.show() 
+    #We call the learning method to train after 5 runs (1 episode)
     agent.learn()
+    #We update the target network with the policy network after 3 episodes (15 runs)
     if (agent.episode % 3) == 0:
         agent.updateTarget()
         print( "Target net parameters updated")
-
-    print( "Saved model to disk")
         
