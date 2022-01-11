@@ -1,4 +1,4 @@
-Presentation:
+# Presentation
 https://www.youtube.com/watch?v=o-Uh5PcTHOY
 
 # First milestone
@@ -92,7 +92,7 @@ If you want to test our best solution you should use the following command:
 
 ```python3 ./rltrain.py --env-name Duckietown --map-name dmad2 --no-img-exp --load-weights --test```
 
-
+Presentation link for the oral exam in the first section.
 
 
 
